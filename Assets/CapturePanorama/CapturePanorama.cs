@@ -889,7 +889,7 @@ namespace CapturePanorama
                 QualitySettings.SetQualityLevel(saveQualityLevel, /*applyExpensiveChanges*/false);
 
             // If we need to access the cubemap pixels on the CPU, retrieve them now
-            if (saveCubemap || !usingGpuTransform || panoramaFormat == PanoramaFormat.CubeUnwrap)
+            if (saveCubemap || !usingGpuTransform)
             {
                 cameraPixelsBuffer.GetData(cameraPixels);
                 if (cameraPixels[cameraPixelsBuffer.count - 1] != BufferSentinelValue)
