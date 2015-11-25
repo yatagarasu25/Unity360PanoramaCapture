@@ -37,7 +37,7 @@ using ImageLockMode = System.Drawing.Imaging.ImageLockMode;
 using PixelFormat = System.Drawing.Imaging.PixelFormat;
 using Process = System.Diagnostics.Process;
 using Rectangle = System.Drawing.Rectangle;
-#if UNITY_5_1
+#if UNITY_5
 using UnityEngine.VR;
 #endif
 
@@ -49,6 +49,7 @@ namespace CapturePanorama
         public string qualitySetting;
         public KeyCode captureKey = KeyCode.P;
         public ImageFormat imageFormat = ImageFormat.PNG;
+        public PanoramaFormat panoramaFormat = PanoramaFormat.LongLatUnwrap;
         public bool captureStereoscopic = false;
         public float interpupillaryDistance = 0.0635f; // Average IPD of all subjects in US Army survey in meters
         public int numCirclePoints = 128;
@@ -77,6 +78,7 @@ namespace CapturePanorama
         public ComputeShader textureToBufferShader;
         public bool enableDebugging = false;
 
+        public enum PanoramaFormat { LongLatUnwrap, CubeUnwrap };
         public enum ImageFormat { PNG, JPEG, BMP };
         public enum AntiAliasing { _1 = 1, _2 = 2, _4 = 4, _8 = 8 };
 
@@ -125,7 +127,7 @@ namespace CapturePanorama
                 case ImageFormat.PNG:  return DrawingImageFormat.Png;
                 case ImageFormat.JPEG: return DrawingImageFormat.Jpeg;
                 case ImageFormat.BMP:  return DrawingImageFormat.Bmp;
-                default: Debug.Assert(false); return DrawingImageFormat.Png;
+                default: /*Debug.Assert(false);*/ return DrawingImageFormat.Png;
             }
         }
 
@@ -136,7 +138,7 @@ namespace CapturePanorama
                 case ImageFormat.PNG:  return "image/png";
                 case ImageFormat.JPEG: return "image/jpeg";
                 case ImageFormat.BMP:  return "image/bmp";
-                default: Debug.Assert(false); return "";
+                default: /*Debug.Assert(false);*/ return "";
             }
         }
 
@@ -147,7 +149,7 @@ namespace CapturePanorama
                 case ImageFormat.PNG:  return "png";
                 case ImageFormat.JPEG: return "jpg";
                 case ImageFormat.BMP:  return "bmp";
-                default: Debug.Assert(false); return "";
+                default: /*Debug.Assert(false);*/ return "";
             }
         }
 
@@ -164,7 +166,9 @@ namespace CapturePanorama
         public void Start()
         {
             audioSource = this.gameObject.AddComponent<AudioSource>();
+#if UNITY_5
             audioSource.spatialBlend = 0.0f; // Use 2D sound for sound effects
+#endif
             audioSource.Play();
 
             Reinitialize();
@@ -259,8 +263,10 @@ namespace CapturePanorama
 			    CubemapFace.PositiveY, CubemapFace.NegativeY,
 			    CubemapFace.PositiveZ, CubemapFace.NegativeZ };
 
+#if UNITY_5
             for (int i = 0; i < faces.Length; i++)
                 Debug.Assert((int)faces[i] == i); // Required for ConvertPanoramaShader
+#endif
 
             panoramaHeight = panoramaWidth / 2;
 
@@ -314,7 +320,7 @@ namespace CapturePanorama
             Log("Number of cameras: " + numCameras);
             Log("Camera dimensions: " + cameraWidth + "x" + cameraHeight);
 
-            usingGpuTransform = useGpuTransform && convertPanoramaShader != null;
+            usingGpuTransform = useGpuTransform && convertPanoramaShader != null && panoramaFormat != PanoramaFormat.CubeUnwrap;
 
             cubemapRenderTexture = new RenderTexture(cameraWidth, cameraHeight, /*depth*/24, RenderTextureFormat.ARGB32);
             cubemapRenderTexture.antiAliasing = (int)antiAliasing;
@@ -549,8 +555,11 @@ namespace CapturePanorama
             {
                 foreach (Camera c in cameras)
                 {
-                    if (c.actualRenderingPath == RenderingPath.DeferredLighting ||
-                        c.actualRenderingPath == RenderingPath.DeferredShading)
+                    if (c.actualRenderingPath == RenderingPath.DeferredLighting
+#if UNITY_5
+                        || c.actualRenderingPath == RenderingPath.DeferredShading
+#endif
+                        )
                     {
                         Debug.LogWarning("CapturePanorama: Setting Anti Aliasing=1 because at least one camera in deferred mode. Use SSAA setting or Antialiasing image effect if needed.");
                         antiAliasing = AntiAliasing._1;
@@ -645,7 +654,7 @@ namespace CapturePanorama
                 headOrientation = OVRManager.display.GetHeadPose(0.0).orientation;
             }
 #endif
-#if UNITY_5_1
+#if UNITY_5
             if (VRSettings.enabled && VRSettings.loadedDevice != VRDeviceType.None)
             {
                 headOrientation = InputTracking.GetLocalRotation(0);
@@ -880,7 +889,7 @@ namespace CapturePanorama
                 QualitySettings.SetQualityLevel(saveQualityLevel, /*applyExpensiveChanges*/false);
 
             // If we need to access the cubemap pixels on the CPU, retrieve them now
-            if (saveCubemap || !usingGpuTransform)
+            if (saveCubemap || !usingGpuTransform || panoramaFormat == PanoramaFormat.CubeUnwrap)
             {
                 cameraPixelsBuffer.GetData(cameraPixels);
                 if (cameraPixels[cameraPixelsBuffer.count - 1] != BufferSentinelValue)
@@ -911,6 +920,7 @@ namespace CapturePanorama
 
             bool producedImageSuccess = false;
 
+            if (panoramaFormat == PanoramaFormat.LongLatUnwrap)
             {
                 // Write pixels directly to .NET Bitmap for saving out
                 // Based on https://msdn.microsoft.com/en-us/library/5ey6h79d%28v=vs.110%29.aspx
@@ -955,6 +965,10 @@ namespace CapturePanorama
                 }
 
                 bitmap.Dispose();
+            }
+            else if (panoramaFormat == PanoramaFormat.CubeUnwrap)
+            {
+                SaveCubemapStripImage( cameraPixels, filenameBase, suffix, imagePath );
             }
 
             // Release ComputeBuffers - all done with these
@@ -1085,6 +1099,44 @@ namespace CapturePanorama
             string cubeFilepath = imagePath + "/" + filenameBase + "_" + cameraId + suffix;
             // TODO: Use better image processing library to get decent JPEG quality out.
             bitmap.Save(cubeFilepath, FormatToDrawingFormat(imageFormat));
+            bitmap.Dispose();
+        }
+
+        private void SaveCubemapStripImage( uint[] cameraPixels, string filenameBase, string suffix, string imagePath )
+        {
+            Bitmap bitmap = new Bitmap( cameraWidth * 6, cameraHeight, PixelFormat.Format32bppArgb );
+            Bitmap frameBitmap = new Bitmap( cameraWidth, cameraHeight, PixelFormat.Format32bppArgb );
+
+            using ( var graphics = System.Drawing.Graphics.FromImage( bitmap ) ) {
+                for ( int i = 0; i < 6; i++ ) {
+                    var bmpData = frameBitmap.LockBits( new Rectangle( 0, 0, frameBitmap.Width, frameBitmap.Height ), ImageLockMode.WriteOnly, bitmap.PixelFormat );
+                    IntPtr ptr = bmpData.Scan0;
+                    byte[] pixelValues = new byte[Math.Abs( bmpData.Stride ) * bitmap.Height];
+                    int stride = bmpData.Stride;
+                    int height = bmpData.Height;
+                    int inputIdx = i * cameraWidth * cameraHeight;
+                    for ( int y = 0; y < cameraHeight; y++ ) {
+                        int outputIdx = stride * (height - 1 - y);
+                        for ( int x = 0; x < cameraWidth; x++ ) {
+                            uint c = cameraPixels[inputIdx];
+                            pixelValues[outputIdx + 0] = (byte)(c & 0xFF);
+                            pixelValues[outputIdx + 1] = (byte)((c >> 8) & 0xFF);
+                            pixelValues[outputIdx + 2] = (byte)(c >> 16);
+                            pixelValues[outputIdx + 3] = 255;
+                            outputIdx += 4;
+                            inputIdx++;
+                        }
+                    }
+                    System.Runtime.InteropServices.Marshal.Copy( pixelValues, 0, ptr, pixelValues.Length );
+                    frameBitmap.UnlockBits( bmpData );
+
+                    graphics.DrawImage( frameBitmap, i * cameraWidth, 0 );
+                }
+            }
+
+            string cubeFilepath = imagePath + "/" + filenameBase + "_CubeStrip" + suffix;
+            // TODO: Use better image processing library to get decent JPEG quality out.
+            bitmap.Save( cubeFilepath, FormatToDrawingFormat( imageFormat ) );
             bitmap.Dispose();
         }
 
