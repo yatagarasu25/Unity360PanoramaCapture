@@ -95,6 +95,7 @@ namespace CapturePanorama
 			public string GameDescription;
 			public List<string> Tags;
 			public List<string> People;
+			public string Album;
 		}
 
 		public string apiUrl = "http://alpha.vrchive.com/api/1/";
@@ -1141,8 +1142,9 @@ namespace CapturePanorama
 ""roomTitle"": ""{7}"",
 ""gameDescription"": ""{8}"",
 ""tags"": [{9}],
-""people"": [{10}]
-}}"				, mtd.Game, mtd.Platform, mtd.Engine, mtd.DeveloperUrl, mtd.LookDirection.x, mtd.LookDirection.y, mtd.LookDirection.z, mtd.RoomTitle, mtd.GameDescription, string.Join(",", mtd.Tags.Select(x => "\"" + x + "\"").ToArray()), string.Join( ",", mtd.People.Select( x => "\"" + x + "\"" ).ToArray() ) );
+""people"": [{10}],
+""album"": [{11}]
+}}"				, mtd.Game, mtd.Platform, mtd.Engine, mtd.DeveloperUrl, mtd.LookDirection.x, mtd.LookDirection.y, mtd.LookDirection.z, mtd.RoomTitle, mtd.GameDescription, string.Join(",", mtd.Tags.Select(x => "\"" + x + "\"").ToArray()), string.Join( ",", mtd.People.Select( x => "\"" + x + "\"" ).ToArray() ), mtd.Album );
 		}
 
         // Based on http://docs.unity3d.com/ScriptReference/WWWForm.html and
