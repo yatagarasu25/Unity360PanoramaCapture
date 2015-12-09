@@ -91,6 +91,7 @@ namespace CapturePanorama
 			public string Engine;
 			public string DeveloperUrl;
 			public Vector3 LookDirection;
+			public float eyeDistance;
 			public string RoomTitle;
 			public string GameDescription;
 			public List<string> Tags;
@@ -135,6 +136,49 @@ namespace CapturePanorama
 		float lastConfiguredInterpupillaryDistance;
 		bool lastConfiguredCaptureStereoscopic, lastConfiguredSaveCubemap, lastConfiguredUseGpuTransform;
 		AntiAliasing lastConfiguredAntiAliasing = AntiAliasing._1;
+
+		enum ECapturePanoramaFormat
+		{
+			CPF_LongLat,
+			CPF_StereoLongLat,
+			CPF_Cube,
+			CPF_StereoCube,
+
+			CPF_CubeSideForward,
+			CPF_CubeSideBackward,
+			CPF_CubeSideRight,
+			CPF_CubeSideLeft,
+			CPF_CubeSideTop,
+			CPF_CubeSideBottom,
+
+			CPF_RightCubeSideForward,
+			CPF_RightCubeSideBackward,
+			CPF_RightCubeSideRight,
+			CPF_RightCubeSideLeft,
+			CPF_RightCubeSideTop,
+			CPF_RightCubeSideBottom,
+
+			LastItem
+		};
+
+		string[] ECapturePanoramaFormatToPostParameterValue = new string[(int)ECapturePanoramaFormat.LastItem] {
+			"cube",
+			"stereocube",
+			"longlat",
+			"stereolonglat",
+			"cube_forward",
+			"cube_backward",
+			"cube_right",
+			"cube_left",
+			"cube_top",
+			"cube_bottom",
+			"right_cube_forward",
+			"right_cube_backward",
+			"right_cube_right",
+			"right_cube_left",
+			"right_cube_top",
+			"right_cube_bottom"
+		};
 
 		DrawingImageFormat FormatToDrawingFormat( ImageFormat format )
 		{
@@ -949,11 +993,18 @@ namespace CapturePanorama
 			if ( producedImageSuccess && uploadImages && !captureEveryFrame ) {
 				Log( "Uploading image" );
 				imageFileBytes = File.ReadAllBytes( filePath );
+				ECapturePanoramaFormat format = ECapturePanoramaFormat.CPF_Cube;
+				if (panoramaFormat == PanoramaFormat.LongLatUnwrap) {
+					format = captureStereoscopic ? ECapturePanoramaFormat.CPF_StereoLongLat : ECapturePanoramaFormat.CPF_LongLat;
+				}
+				else if (panoramaFormat == PanoramaFormat.CubeUnwrap) {
+					format = captureStereoscopic ? ECapturePanoramaFormat.CPF_StereoCube : ECapturePanoramaFormat.CPF_Cube;
+				}
 				string mimeType = FormatMimeType( imageFormat );
 				if ( async )
-					yield return StartCoroutine( UploadImage( imageFileBytes, filenameBase + suffix, mimeType, async ) );
+					yield return StartCoroutine( UploadImage( imageFileBytes, filenameBase + suffix, mimeType, format, async ) );
 				else {
-					var enumerator = UploadImage( imageFileBytes, filenameBase + suffix, mimeType, async );
+					var enumerator = UploadImage( imageFileBytes, filenameBase + suffix, mimeType, format, async );
 					while ( enumerator.MoveNext() ) { }
 				}
 			}
@@ -1139,17 +1190,19 @@ namespace CapturePanorama
 ""y"": {5},
 ""z"": {6}
 }},
-""roomTitle"": ""{7}"",
-""gameDescription"": ""{8}"",
-""tags"": [{9}],
-""people"": [{10}],
-""album"": [{11}]
-}}"				, mtd.Game, mtd.Platform, mtd.Engine, mtd.DeveloperUrl, mtd.LookDirection.x, mtd.LookDirection.y, mtd.LookDirection.z, mtd.RoomTitle, mtd.GameDescription, string.Join(",", mtd.Tags.Select(x => "\"" + x + "\"").ToArray()), string.Join( ",", mtd.People.Select( x => "\"" + x + "\"" ).ToArray() ), mtd.Album );
+""eyeDistance"" : ""{7}"",
+""roomTitle"": ""{8}"",
+""gameDescription"": ""{9}"",
+""tags"": [{10}],
+""people"": [{11}],
+""album"": [{12}]
+}}"
+			, mtd.Game, mtd.Platform, mtd.Engine, mtd.DeveloperUrl, mtd.LookDirection.x, mtd.LookDirection.y, mtd.LookDirection.z, mtd.eyeDistance, mtd.RoomTitle, mtd.GameDescription, string.Join(",", mtd.Tags.Select(x => "\"" + x + "\"").ToArray()), string.Join( ",", mtd.People.Select( x => "\"" + x + "\"" ).ToArray() ), mtd.Album );
 		}
 
         // Based on http://docs.unity3d.com/ScriptReference/WWWForm.html and
         // http://answers.unity3d.com/questions/48686/uploading-photo-and-video-on-a-web-server.html
-        IEnumerator UploadImage(byte[] imageFileBytes, string filename, string mimeType, bool async)
+        IEnumerator UploadImage(byte[] imageFileBytes, string filename, string mimeType, ECapturePanoramaFormat format, bool async )
         {
             float startTime = Time.realtimeSinceStartup;
 
@@ -1157,6 +1210,7 @@ namespace CapturePanorama
 
             form.AddField("key", apiKey);
             form.AddField("action", "upload");
+			form.AddField( "format", ECapturePanoramaFormatToPostParameterValue[(int)format] );
 			if (!string.IsNullOrEmpty(metadata.Game))
 				form.AddField("metadata", SerailizeMetadata(metadata));
             form.AddBinaryData("source", imageFileBytes, filename, mimeType);
